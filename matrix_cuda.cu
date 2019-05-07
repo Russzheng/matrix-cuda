@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <fstream>
+#include <iostream>
 
 #define BLOCK_SIZE 16
 
@@ -193,9 +195,9 @@ int main(int argc, char const *argv[])
     // srand(3333);
     // printf("please type in m n and k\n");
     // scanf("%d %d %d", &m, &n, &k);
-    m = argv[1];
-    n = argv[2];
-    k = argv[3];
+    m = atoi(argv[1]);
+    n = atoi(argv[2]);
+    k = atoi(argv[3]);
 
     // allocate memory in host RAM, h_cc is used to store CPU result
     int *h_a, *h_b, *h_c, *h_cc;
@@ -204,14 +206,14 @@ int main(int argc, char const *argv[])
     cudaMallocHost((void **) &h_c, sizeof(int)*m*k);
     cudaMallocHost((void **) &h_cc, sizeof(int)*m*k);
 
-    ifstream infile; 
+    std::ifstream infile; 
     infile.open("input.txt"); 
     int x;
 
     // random initialize matrix A
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            if (std::infile >> x) {
+            if (infile >> x) {
                 h_a[i * n + j] = x;
             }
         }
@@ -220,7 +222,7 @@ int main(int argc, char const *argv[])
     // random initialize matrix B
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < k; ++j) {
-            if (std::infile >> x) {
+            if (infile >> x) {
                 h_b[i * k + j] = x;
             }
         }
@@ -245,6 +247,10 @@ int main(int argc, char const *argv[])
     cudaMemcpy(d_a, h_a, sizeof(int)*m*n, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, sizeof(int)*n*k, cudaMemcpyHostToDevice);
 
+    unsigned int grid_rows = (m + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    unsigned int grid_cols = (k + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    dim3 dimGrid(grid_cols, grid_rows);
+    dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
    
     // Launch kernel 
     if(m == n && n == k)

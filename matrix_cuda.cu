@@ -190,9 +190,12 @@ int main(int argc, char const *argv[])
 {
     int m, n, k;
     /* Fixed seed for illustration */
-    srand(3333);
-    printf("please type in m n and k\n");
-    scanf("%d %d %d", &m, &n, &k);
+    // srand(3333);
+    // printf("please type in m n and k\n");
+    // scanf("%d %d %d", &m, &n, &k);
+    m = argv[1];
+    n = argv[2];
+    k = argv[3];
 
     // allocate memory in host RAM, h_cc is used to store CPU result
     int *h_a, *h_b, *h_c, *h_cc;
@@ -201,17 +204,25 @@ int main(int argc, char const *argv[])
     cudaMallocHost((void **) &h_c, sizeof(int)*m*k);
     cudaMallocHost((void **) &h_cc, sizeof(int)*m*k);
 
+    ifstream infile; 
+    infile.open("input.txt"); 
+    int x;
+
     // random initialize matrix A
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            h_a[i * n + j] = rand() % 1024;
+            if (std::infile >> x) {
+                h_a[i * n + j] = x;
+            }
         }
     }
 
     // random initialize matrix B
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < k; ++j) {
-            h_b[i * k + j] = rand() % 1024;
+            if (std::infile >> x) {
+                h_b[i * k + j] = x;
+            }
         }
     }
 

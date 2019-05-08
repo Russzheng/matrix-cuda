@@ -11,6 +11,11 @@
 #include <assert.h>
 #include <fstream>
 #include <iostream>
+#include <cmath>
+#include <ctime>
+#include <curand.h>
+#include <curand_kernel.h>
+using namespace std;
 
 #define BLOCK_SIZE 16
 
@@ -31,15 +36,16 @@ Note:
         dim3 dimGrid((k + BLOCK_SIZE - 1) / BLOCK_SIZE, (m + BLOCK_SIZE - 1) / BLOCK_SIZE);
         dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
 
-    further sppedup can be obtained by using shared memory to decrease global memory access times
+    further speedup can be obtained by using shared memory to decrease global memory access times
 return: none
 *********************************************************************
 */
-__global__ void gpu_matrix_mult(int *a,int *b, int *c, int m, int n, int k)
+__global__ void gpu_matrix_mult(double *a, double *b, double *c, int m, int n, int k)
 { 
     int row = blockIdx.y * blockDim.y + threadIdx.y; 
     int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int sum = 0;
+    double sum = 0.0;
+
     if( col < k && row < m) 
     {
         for(int i = 0; i < n; i++) 
@@ -47,6 +53,17 @@ __global__ void gpu_matrix_mult(int *a,int *b, int *c, int m, int n, int k)
             sum += a[row * n + i] * b[i * k + col];
         }
         c[row * k + col] = sum;
+    }
+} 
+
+// gpu_matrix_add<<<2, (m * n + 1) / 2>>>(d_a, d_b, d_c, m*n, 1.0);
+__global__ void gpu_matrix_add(double *a, double *b, double *c, int size, double scale)
+{ 
+    // Element-wise addition 
+    // a, b, c should have same dimensions
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        c[i] = a[i] + scale * b[i];    
     }
 } 
 
@@ -70,14 +87,14 @@ Note:
 return: none
 *********************************************************************
 */
-__global__ void gpu_square_matrix_mult(int *d_a, int *d_b, int *d_result, int n) 
+__global__ void gpu_square_matrix_mult(double *d_a, double *d_b, double *d_result, int n) 
 {
-    __shared__ int tile_a[BLOCK_SIZE][BLOCK_SIZE];
-    __shared__ int tile_b[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ double tile_a[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ double tile_b[BLOCK_SIZE][BLOCK_SIZE];
 
     int row = blockIdx.y * BLOCK_SIZE + threadIdx.y;
     int col = blockIdx.x * BLOCK_SIZE + threadIdx.x;
-    int tmp = 0;
+    double tmp = 0.0;
     int idx;
 
     for (int sub = 0; sub < gridDim.x; ++sub) 
@@ -86,7 +103,7 @@ __global__ void gpu_square_matrix_mult(int *d_a, int *d_b, int *d_result, int n)
         if(idx >= n*n)
         {
             // n may not divisible by BLOCK_SIZE
-            tile_a[threadIdx.y][threadIdx.x] = 0;
+            tile_a[threadIdx.y][threadIdx.x] = 0.0;
         }
         else
         {
@@ -96,7 +113,7 @@ __global__ void gpu_square_matrix_mult(int *d_a, int *d_b, int *d_result, int n)
         idx = (sub * BLOCK_SIZE + threadIdx.y) * n + col;
         if(idx >= n*n)
         {
-            tile_b[threadIdx.y][threadIdx.x] = 0;
+            tile_b[threadIdx.y][threadIdx.x] = 0.0;
         }  
         else
         {
@@ -134,7 +151,7 @@ Note:
 return: none
 *********************************************************************
 */
-__global__ void gpu_matrix_transpose(int* mat_in, int* mat_out, unsigned int rows, unsigned int cols) 
+__global__ void gpu_matrix_transpose(double* mat_in, double* mat_out, unsigned int rows, unsigned int cols) 
 {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int idy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -161,12 +178,12 @@ parameters:
 return: none
 *********************************************************************
 */
-void cpu_matrix_mult(int *h_a, int *h_b, int *h_result, int m, int n, int k) {
+void cpu_matrix_mult(double *h_a, double *h_b, double *h_result, int m, int n, int k) {
     for (int i = 0; i < m; ++i) 
     {
         for (int j = 0; j < k; ++j) 
         {
-            int tmp = 0.0;
+            double tmp = 0.0;
             for (int h = 0; h < n; ++h) 
             {
                 tmp += h_a[i * n + h] * h_b[h * k + j];
@@ -174,6 +191,12 @@ void cpu_matrix_mult(int *h_a, int *h_b, int *h_result, int m, int n, int k) {
             h_result[i * k + j] = tmp;
         }
     }
+}
+
+double fRand(double fMin, double fMax)
+{
+    double f = (double)rand() / RAND_MAX;
+    return fMin + f * (fMax - fMin);
 }
 
 /*
@@ -192,39 +215,49 @@ int main(int argc, char const *argv[])
 {
     int m, n, k;
     /* Fixed seed for illustration */
-    // srand(3333);
-    // printf("please type in m n and k\n");
-    // scanf("%d %d %d", &m, &n, &k);
-    m = atoi(argv[1]);
-    n = atoi(argv[2]);
-    k = atoi(argv[3]);
+    srand(3333);
+    // std::uniform_real_distribution<double> dist(0.0, 255.0);  //(min, max)
+
+    // //Mersenne Twister: Good quality random number generator
+    // std::mt19937 rng; 
+    // //Initialize with non-deterministic seeds
+    // rng.seed(std::random_device{}()); 
+
+    printf("please type in m n and k\n");
+    scanf("%d %d %d", &m, &n, &k);
+    // m = atoi(argv[1]);
+    // n = atoi(argv[2]);
+    // k = atoi(argv[3]);
 
     // allocate memory in host RAM, h_cc is used to store CPU result
-    int *h_a, *h_b, *h_c, *h_cc;
-    cudaMallocHost((void **) &h_a, sizeof(int)*m*n);
-    cudaMallocHost((void **) &h_b, sizeof(int)*n*k);
-    cudaMallocHost((void **) &h_c, sizeof(int)*m*k);
-    cudaMallocHost((void **) &h_cc, sizeof(int)*m*k);
+    double *h_a, *h_b, *h_c, *h_cc;
+    cudaMallocHost((void **) &h_a, sizeof(double)*m*n);
+    cudaMallocHost((void **) &h_b, sizeof(double)*n*k);
+    cudaMallocHost((void **) &h_c, sizeof(double)*m*k);
+    cudaMallocHost((void **) &h_cc, sizeof(double)*m*k);
 
-    std::ifstream infile; 
-    infile.open("input.txt"); 
-    int x;
+    // std::ifstream infile; 
+    // infile.open("input.txt"); 
+    double x;
 
     // random initialize matrix A
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            if (infile >> x) {
-                h_a[i * n + j] = x;
-            }
+            // if (infile >> x) {
+            x = fRand(0.0, 255.0);
+            h_a[i * n + j] = x;
+            // printf("%f\n", x);
+            // }
         }
     }
 
     // random initialize matrix B
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < k; ++j) {
-            if (infile >> x) {
-                h_b[i * k + j] = x;
-            }
+            // if (infile >> x) {
+            h_b[i * k + j] = fRand(0.0, 255.0);
+                // printf("%d\n", x);
+            // }
         }
     }
 
@@ -238,14 +271,14 @@ int main(int argc, char const *argv[])
     // start to count execution time of GPU version
     cudaEventRecord(start, 0);
     // Allocate memory space on the device 
-    int *d_a, *d_b, *d_c;
-    cudaMalloc((void **) &d_a, sizeof(int)*m*n);
-    cudaMalloc((void **) &d_b, sizeof(int)*n*k);
-    cudaMalloc((void **) &d_c, sizeof(int)*m*k);
+    double *d_a, *d_b, *d_c;
+    cudaMalloc((void **) &d_a, sizeof(double)*m*n);
+    cudaMalloc((void **) &d_b, sizeof(double)*n*k);
+    cudaMalloc((void **) &d_c, sizeof(double)*m*k);
 
     // copy matrix A and B from host to device memory
-    cudaMemcpy(d_a, h_a, sizeof(int)*m*n, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, sizeof(int)*n*k, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_a, h_a, sizeof(double)*m*n, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b, h_b, sizeof(double)*n*k, cudaMemcpyHostToDevice);
 
     unsigned int grid_rows = (m + BLOCK_SIZE - 1) / BLOCK_SIZE;
     unsigned int grid_cols = (k + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -253,69 +286,60 @@ int main(int argc, char const *argv[])
     dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
    
     // Launch kernel 
-    if(m == n && n == k)
-    {
-    //unsigned int grid_rows = sqrt(BLOCK_SIZE);
-    //unsigned int grid_cols = m/ grid_rows;
-    
-	//if(size % grid_rows != 0){
-	//grid_cols++;}
-    //dim3 dimGrid(grid_cols, grid_cols,1);
-    //dim3 dimBlock(grid_rows, grid_rows,1);
-                
-                //this is the correct kernal size for different thread sizes..
+    // if(m == n && n == k)
+    // {           
+    //     //this is the correct kernal size for different thread sizes..
+    //     gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, n);    
+    // }
+    // else
+    // {
+    //     gpu_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, m, n, k);    
+    // }
+    // // Transefr results from device to host 
+    // cudaMemcpy(h_c, d_c, sizeof(double)*m*k, cudaMemcpyDeviceToHost);
+    // cudaThreadSynchronize();
+    // // time counting terminate
+    // cudaEventRecord(stop, 0);
+    // cudaEventSynchronize(stop);
 
-        gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, n);    
-    }
-    else
-    {
-        gpu_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, m, n, k);    
-    }
-    // Transefr results from device to host 
-    cudaMemcpy(h_c, d_c, sizeof(int)*m*k, cudaMemcpyDeviceToHost);
-    cudaThreadSynchronize();
-    // time counting terminate
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
+    // // compute time elapse on GPU computing
+    // cudaEventElapsedTime(&gpu_elapsed_time_ms, start, stop);
+    // printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on GPU: %f ms.\n\n", m, n, n, k, gpu_elapsed_time_ms);
 
-    // compute time elapse on GPU computing
-    cudaEventElapsedTime(&gpu_elapsed_time_ms, start, stop);
-    printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on GPU: %f ms.\n\n", m, n, n, k, gpu_elapsed_time_ms);
+    // // start the CPU version
+    // cudaEventRecord(start, 0);
 
-    // start the CPU version
-    cudaEventRecord(start, 0);
+    // cpu_matrix_mult(h_a, h_b, h_cc, m, n, k);
 
-    cpu_matrix_mult(h_a, h_b, h_cc, m, n, k);
+    // cudaEventRecord(stop, 0);
+    // cudaEventSynchronize(stop);
+    // cudaEventElapsedTime(&cpu_elapsed_time_ms, start, stop);
+    // printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on CPU: %f ms.\n\n", m, n, n, k, cpu_elapsed_time_ms);
 
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&cpu_elapsed_time_ms, start, stop);
-    printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on CPU: %f ms.\n\n", m, n, n, k, cpu_elapsed_time_ms);
+    // // validate results computed by GPU
+    // int all_ok = 1;
+    // for (int i = 0; i < m; ++i)
+    // {
+    //     for (int j = 0; j < k; ++j)
+    //     {
+    //         //printf("[%d][%d]:%d == [%d][%d]:%d, ", i, j, h_cc[i*k + j], i, j, h_c[i*k + j]);
+    //         if(h_cc[i*k + j] - h_c[i*k + j] > 0.0001)
+    //         {
+    //             all_ok = 0;
+    //         }
+    //     }
+    //     //printf("\n");
+    // }
 
-    // validate results computed by GPU
-    int all_ok = 1;
-    for (int i = 0; i < m; ++i)
-    {
-        for (int j = 0; j < k; ++j)
-        {
-            //printf("[%d][%d]:%d == [%d][%d]:%d, ", i, j, h_cc[i*k + j], i, j, h_c[i*k + j]);
-            if(h_cc[i*k + j] != h_c[i*k + j])
-            {
-                all_ok = 0;
-            }
-        }
-        //printf("\n");
-    }
-
-    // roughly compute speedup
-    if(all_ok)
-    {
-        printf("all results are correct!!!, speedup = %f\n", cpu_elapsed_time_ms / gpu_elapsed_time_ms);
-    }
-    else
-    {
-        printf("incorrect results\n");
-    }
+    // // roughly compute speedup
+    // if(all_ok)
+    // {
+    //     printf("all results are correct!!!, speedup = %f\n", cpu_elapsed_time_ms / gpu_elapsed_time_ms);
+    // }
+    // else
+    // {
+    //     printf("incorrect results\n");
+    // }
 
     // free memory
     cudaFree(d_a);

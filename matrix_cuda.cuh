@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <cmath>
 #include <ctime>
+#define BLOCK_SIZE 16
 
 /*
 *********************************************************************

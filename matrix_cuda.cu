@@ -284,60 +284,60 @@ int main(int argc, char const *argv[])
     dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
    
     // Launch kernel 
-    // if(m == n && n == k)
-    // {           
-    //     //this is the correct kernal size for different thread sizes..
-    //     gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, n);    
-    // }
-    // else
-    // {
-    //     gpu_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, m, n, k);    
-    // }
-    // // Transefr results from device to host 
-    // cudaMemcpy(h_c, d_c, sizeof(double)*m*k, cudaMemcpyDeviceToHost);
-    // cudaThreadSynchronize();
-    // // time counting terminate
-    // cudaEventRecord(stop, 0);
-    // cudaEventSynchronize(stop);
+    if(m == n && n == k)
+    {           
+        //this is the correct kernal size for different thread sizes..
+        gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, n);    
+    }
+    else
+    {
+        gpu_matrix_mult<<<dimGrid, dimBlock>>>(d_a, d_b, d_c, m, n, k);    
+    }
+    // Transefr results from device to host 
+    cudaMemcpy(h_c, d_c, sizeof(double)*m*k, cudaMemcpyDeviceToHost);
+    cudaThreadSynchronize();
+    // time counting terminate
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
 
-    // // compute time elapse on GPU computing
-    // cudaEventElapsedTime(&gpu_elapsed_time_ms, start, stop);
-    // printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on GPU: %f ms.\n\n", m, n, n, k, gpu_elapsed_time_ms);
+    // compute time elapse on GPU computing
+    cudaEventElapsedTime(&gpu_elapsed_time_ms, start, stop);
+    printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on GPU: %f ms.\n\n", m, n, n, k, gpu_elapsed_time_ms);
 
-    // // start the CPU version
-    // cudaEventRecord(start, 0);
+    // start the CPU version
+    cudaEventRecord(start, 0);
 
-    // cpu_matrix_mult(h_a, h_b, h_cc, m, n, k);
+    cpu_matrix_mult(h_a, h_b, h_cc, m, n, k);
 
-    // cudaEventRecord(stop, 0);
-    // cudaEventSynchronize(stop);
-    // cudaEventElapsedTime(&cpu_elapsed_time_ms, start, stop);
-    // printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on CPU: %f ms.\n\n", m, n, n, k, cpu_elapsed_time_ms);
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&cpu_elapsed_time_ms, start, stop);
+    printf("Time elapsed on matrix multiplication of %dx%d . %dx%d on CPU: %f ms.\n\n", m, n, n, k, cpu_elapsed_time_ms);
 
-    // // validate results computed by GPU
-    // int all_ok = 1;
-    // for (int i = 0; i < m; ++i)
-    // {
-    //     for (int j = 0; j < k; ++j)
-    //     {
-    //         //printf("[%d][%d]:%d == [%d][%d]:%d, ", i, j, h_cc[i*k + j], i, j, h_c[i*k + j]);
-    //         if(h_cc[i*k + j] - h_c[i*k + j] > 0.0001)
-    //         {
-    //             all_ok = 0;
-    //         }
-    //     }
-    //     //printf("\n");
-    // }
+    // validate results computed by GPU
+    int all_ok = 1;
+    for (int i = 0; i < m; ++i)
+    {
+        for (int j = 0; j < k; ++j)
+        {
+            //printf("[%d][%d]:%d == [%d][%d]:%d, ", i, j, h_cc[i*k + j], i, j, h_c[i*k + j]);
+            if(h_cc[i*k + j] - h_c[i*k + j] > 0.0001)
+            {
+                all_ok = 0;
+            }
+        }
+        //printf("\n");
+    }
 
-    // // roughly compute speedup
-    // if(all_ok)
-    // {
-    //     printf("all results are correct!!!, speedup = %f\n", cpu_elapsed_time_ms / gpu_elapsed_time_ms);
-    // }
-    // else
-    // {
-    //     printf("incorrect results\n");
-    // }
+    // roughly compute speedup
+    if(all_ok)
+    {
+        printf("all results are correct!!!, speedup = %f\n", cpu_elapsed_time_ms / gpu_elapsed_time_ms);
+    }
+    else
+    {
+        printf("incorrect results\n");
+    }
 
     // free memory
     cudaFree(d_a);

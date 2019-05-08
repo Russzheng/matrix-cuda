@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cmath>
 #include <ctime>
+#include "matrix_cuda.cuh"
 using namespace std;
 
 #define BLOCK_SIZE 16
@@ -45,6 +46,7 @@ void cpu_matrix_mult(double *h_a, double *h_result, int m, int n, int k) {
 }
 
 void Function(double t, double* z, double* f) {
+	// Serial Matmul
 	cpu_matrix_mult(z, f, ROW, COL, COL);
 }
 
@@ -53,55 +55,92 @@ void rk4(double t_init, double t_stop, double* input_mat, double* output_mat, in
 
 	double dt = t_stop - t_init;
 
+	// Init
+	//
+	// Parallel
+	//
+	// Init
+	double *weights_cuda, *outputs_cuda;
+	double *z0_cuda, *z1_cuda, *z2_cuda, *z3_cuda;
+	double *f0_cuda, *f1_cuda, *f2_cuda, *f3_cuda;
+	cudaMalloc((void **) &weights_cuda, sizeof(double)*COL*COL);
+	cudaMalloc((void **) &z0, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &z1, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &z2, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &z3, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &f0, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &f1, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &f2, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &f3, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &outputs_cuda, sizeof(double)*ROW*COL);
+
+	// Collecting stages
+	double *tmp_1, *tmp2;
+	cudaMalloc((void **) &tmp1, sizeof(double)*ROW*COL);
+	cudaMalloc((void **) &tmp2, sizeof(double)*ROW*COL);
+
+    cudaMemcpy(z0_cuda, input_mat, sizeof(double)*ROW*COL, cudaMemcpyHostToDevice);
+    cudaMemcpy(weights_cuda, WEIGHTS, sizeof(double)*COL*COL, cudaMemcpyHostToDevice);
+
+    unsigned int grid_rows = (ROW + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    unsigned int grid_cols = (COL + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    dim3 dimGrid(grid_cols, grid_rows);
+    dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
 
 	/// Stage 0
-	double t0 = t_init;
-	double *z0 = input_mat;
-	double *f0; f0 = new double[ROW * COL];
-	Function(t0, z0, f0);
+	//Parallel
+    if(ROW == COL)
+    {           
+        gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(z0_cuda, weights_cuda, f0_cuda, COL);    
+    }
+    else
+    {
+        gpu_matrix_mult<<<dimGrid, dimBlock>>>(z0_cuda, weights_cuda, f0_cuda, ROW, COL, COL);    
+    }
 
 
-	/// Stage 1
-	double t1 = t0 + 0.5 * dt;
-	double *z1; z1 = new double[ROW * COL];
-	double *f1; f1 = new double[ROW * COL];
-	
-	for (int i = 0; i < ROW * COL; i++) {
-		z1[i] = input_mat[i] + 0.5 * dt * f0[i];
-	}
-	
-	Function(t1, z1, f1);
-
+	/// Stage 1	
+	// Function(t1, z1, f1);
+    gpu_matrix_add<<<2, (ROW * COL + 1) / 2>>>(z0_cuda, f0_cuda, z1_cuda, ROW*COL, 0.5 * dt);
+	if(ROW == COL)
+    {           
+        gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(z1_cuda, weights_cuda, f1_cuda, COL);    
+    }
+    else
+    {
+        gpu_matrix_mult<<<dimGrid, dimBlock>>>(z1_cuda, weights_cuda, f1_cuda, ROW, COL, COL);    
+    }
 
 	/// Stage 2
-	double t2 = t0 + 0.5 * dt;
-	double *z2; z2 = new double[ROW * COL];
-	double *f2; f2 = new double[ROW * COL];
-	
-	for (int i = 0; i < ROW * COL; i++) {
-		z2[i] = input_mat[i] + 0.5 * dt * f1[i];
-	}
-
-	Function(t2, z2, f2);
+	gpu_matrix_add<<<2, (ROW * COL + 1) / 2>>>(z0_cuda, f1_cuda, z2_cuda, ROW*COL, 0.5 * dt);
+	if(ROW == COL)
+    {           
+        gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(z2_cuda, weights_cuda, f2_cuda, COL);    
+    }
+    else
+    {
+        gpu_matrix_mult<<<dimGrid, dimBlock>>>(z2_cuda, weights_cuda, f2_cuda, ROW, COL, COL);    
+    }
 
 
 	/// Stage 3
-	double t3 = t_init + dt;
-	double *z3; z3 = new double[ROW * COL];
-	double *f3; f3 = new double[ROW * COL];
-	
-	for (int i = 0; i < ROW * COL; i++) {
-		z3[i] = input_mat[i] + dt * f2[i];
-	}
-
-	Function(t3, z3, f3);
-
+	gpu_matrix_add<<<2, (ROW * COL + 1) / 2>>>(z0_cuda, f2_cuda, z3_cuda, ROW*COL, 0.5 * dt);
+	if(ROW == COL)
+    {           
+        gpu_square_matrix_mult<<<dimGrid, dimBlock>>>(z3_cuda, weights_cuda, f3_cuda, COL);    
+    }
+    else
+    {
+        gpu_matrix_mult<<<dimGrid, dimBlock>>>(z3_cuda, weights_cuda, f3_cuda, ROW, COL, COL);    
+    }
 
 	/// Collect Stages:
 	for (int i = 0; i < ROW * COL; i++) {
 		output_mat[i] = input_mat[i] + (dt / 6) * (f0[i] + 2.0 * f1[i] + 2.0 * f2[i] + f3[i]);
 	}
 
+	gpu_matrix_add_multi<<<2, (ROW * COL + 1) / 2>>>(z0_cuda, f0_cuda, f1_cuda, f2_cuda, f3_cuda, outputs_cuda, 
+		ROW*COL, 1.0, dt / 6.0, dt / 3.0, dt / 3.0, dt / 6.0);
 
 	/// save previous K:
 	*previous_f0 = *f0;
@@ -110,13 +149,14 @@ void rk4(double t_init, double t_stop, double* input_mat, double* output_mat, in
 	*previous_f3 = *f3;
 
 
-	delete [] f0;
-	delete [] f1;
-	delete [] z1;
-	delete [] f2;
-	delete [] z2;
-	delete [] f3;
-	delete [] z3;
+	cudaFree(f0_cuda);
+	cudaFree(f1_cuda);
+	cudaFree(z1_cuda);
+	cudaFree(f2_cuda);
+	cudaFree(z2_cuda);
+	cudaFree(f3_cuda);
+	cudaFree(z3_cuda);
+	cudaFree(weights_cuda);
 }
 
 

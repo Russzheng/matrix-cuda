@@ -13,8 +13,6 @@
 #include <iostream>
 #include <cmath>
 #include <ctime>
-#include <curand.h>
-#include <curand_kernel.h>
 using namespace std;
 
 #define BLOCK_SIZE 16

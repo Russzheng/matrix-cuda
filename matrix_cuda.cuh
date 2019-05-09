@@ -72,6 +72,28 @@ __global__ void gpu_matrix_add_multi(double *a, double *b, double *c, double *d,
     }
 } 
 
+__global__ void gpu_matrix_add_multi_four(double *a, double *b, double *c, double *d, double *output, int size, 
+    double scale_a, double scale_b, double scale_c, double scale_d)
+{ 
+    // Element-wise addition 
+    // a, b, c should have same dimensions
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        output[i] = a[i] * scale_a + b[i] * scale_b + c[i] * scale_c + d[i] * scale_d;    
+    }
+} 
+
+__global__ void gpu_matrix_add_multi_three(double *a, double *b, double *c, double *output, int size, 
+    double scale_a, double scale_b, double scale_c)
+{ 
+    // Element-wise addition 
+    // a, b, c should have same dimensions
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        output[i] = a[i] * scale_a + b[i] * scale_b + c[i] * scale_c;    
+    }
+} 
+
 /*
 *********************************************************************
 function name: gpu_square_matrix_mult
